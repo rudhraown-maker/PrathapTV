@@ -32,6 +32,21 @@ object Prefs {
             .apply()
     }
 
+    // Photos, screensaver and night sleep timer
+    fun photoBackground(c: Context): Boolean = p(c).getBoolean("photoBg", true)
+    fun saverMinutes(c: Context): Int = p(c).getInt("saverMin", 5)          // 0 = off
+    fun sleepEnabled(c: Context): Boolean = p(c).getBoolean("sleepOn", false)
+    fun sleepMinute(c: Context): Int = p(c).getInt("sleepMin", 23 * 60)     // 23:00
+
+    fun saveExtras(c: Context, photoBg: Boolean, saverMin: Int, sleepOn: Boolean, sleepMin: Int) {
+        p(c).edit()
+            .putBoolean("photoBg", photoBg)
+            .putInt("saverMin", saverMin.coerceIn(0, 240))
+            .putBoolean("sleepOn", sleepOn)
+            .putInt("sleepMin", sleepMin)
+            .apply()
+    }
+
     /** Approximate time the TV booted, in minutes. */
     private fun bootMinute(): Long =
         (System.currentTimeMillis() - SystemClock.elapsedRealtime()) / 60_000L

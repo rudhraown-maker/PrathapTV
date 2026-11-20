@@ -1,6 +1,7 @@
 package com.prathap.tvhome
 
 import android.app.Activity
+import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -77,20 +78,83 @@ class SetupActivity : Activity() {
         col.addView(auto)
         col.addView(autoLogin)
 
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START
-            setPadding(0, dp(20), 0, 0)
+        // ---- Family photos, screensaver, night sleep timer
+        col.addView(label("Family photos & sleep time", 22f).apply { setPadding(0, dp(28), 0, dp(4)) })
+        val photoBg = CheckBox(this).apply {
+            text = "Show family photos behind the home screen"
+            setTextColor(Color.WHITE); textSize = 16f; isChecked = Prefs.photoBackground(this@SetupActivity)
         }
-        fun button(t: String, onClick: () -> Unit) = Button(this).apply {
+        col.addView(photoBg)
+        col.addView(label("Photo screensaver starts after this many idle minutes (0 = off)"))
+        val saver = field(Prefs.saverMinutes(this).toString(), InputType.TYPE_CLASS_NUMBER)
+        col.addView(saver)
+        val sleepOn = CheckBox(this).apply {
+            text = "Night sleep timer – switch the TV off every night"
+            setTextColor(Color.WHITE); textSize = 16f; isChecked = Prefs.sleepEnabled(this@SetupActivity)
+        }
+        col.addView(sleepOn)
+        col.addView(label("Sleep time (24-hour clock, e.g. 23:00)"))
+        val sleepAt = field(SleepScheduler.format(Prefs.sleepMinute(this)),
+            InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME)
+        col.addView(sleepAt)
+
+        fun newRow() = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.START
+            setPadding(0, dp(16), 0, 0)
+        }
+        val row = newRow()
+        val row2 = newRow()
+        fun buttonIn(target: LinearLayout, t: String, onClick: () -> Unit) = Button(this).apply {
             text = t; isAllCaps = false; textSize = 16f; setOnClickListener { onClick() }
-            row.addView(this, LinearLayout.LayoutParams(
+            target.addView(this, LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { marginEnd = dp(12) })
         }
+        fun button(t: String, onClick: () -> Unit) = buttonIn(row, t, onClick)
+
+        buttonIn(row2, "Allow photo access") {
+            if (PhotoStore.hasPermission(this)) {
+                Toast.makeText(this, "Photo access already allowed", Toast.LENGTH_SHORT).show()
+            } else {
+                requestPermissions(arrayOf(PhotoStore.permission()), 21)
+            }
+        }
+        buttonIn(row2, "Play slideshow now") {
+            startActivity(Intent(this, SlideshowActivity::class.java))
+        }
+        buttonIn(row2, "Allow TV to switch off") {
+            if (SleepScheduler.isAdminActive(this)) {
+                Toast.makeText(this, "Already allowed", Toast.LENGTH_SHORT).show()
+            } else {
+                try {
+                    startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                        .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, SleepScheduler.adminComponent(this))
+                        .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                            "Lets Prathap TV switch the screen off at your sleep time."))
+                } catch (_: Exception) {
+                    Toast.makeText(this, "This TV hides that screen – see the setup guide (adb command)",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         val save = button("Save") {
+            val sleepMin = SleepScheduler.parse(sleepAt.text.toString())
+            if (sleepOn.isChecked && sleepMin == null) {
+                Toast.makeText(this, "Sleep time must look like 23:00", Toast.LENGTH_LONG).show()
+                return@button
+            }
             Prefs.save(this, url.text.toString(), user.text.toString(), pass.text.toString(),
                 auto.isChecked, autoLogin.isChecked)
+            Prefs.saveExtras(this, photoBg.isChecked,
+                saver.text.toString().trim().toIntOrNull() ?: 5,
+                sleepOn.isChecked, sleepMin ?: Prefs.sleepMinute(this))
+            SleepScheduler.schedule(this)
+            if (sleepOn.isChecked && !SleepScheduler.isAdminActive(this)) {
+                Toast.makeText(this,
+                    "Tip: press 'Allow TV to switch off' so the timer can turn the screen off",
+                    Toast.LENGTH_LONG).show()
+            }
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
             if (firstRun) {
                 Prefs.markAutoOpened(this)
@@ -116,6 +180,7 @@ class SetupActivity : Activity() {
             }
         }
         col.addView(row)
+        col.addView(row2)
         col.addView(label("Tip: in the dashboard press MENU on the remote to come back here, BACK for home.", 14f).apply {
             alpha = 0.7f
         })

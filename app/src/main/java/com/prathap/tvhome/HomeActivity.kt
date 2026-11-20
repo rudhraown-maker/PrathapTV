@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -79,6 +80,13 @@ class HomeActivity : Activity() {
     private lateinit var clock: TextView
     private lateinit var greeting: TextView
     private var firstFocus: View? = null
+    private lateinit var bg: SlideshowView
+    private var askedPhotoPermission = false
+
+    // Photo screensaver after a few idle minutes on the home screen
+    private val idle = Runnable {
+        if (PhotoStore.list(this).isNotEmpty()) open(Intent(this, SlideshowActivity::class.java))
+    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -140,8 +148,11 @@ class HomeActivity : Activity() {
         }
         page.addView(content)
         scroll.addView(page)
+        bg = SlideshowView(this, withClock = false, dim = 0.55f).apply { intervalMs = 20_000L }
+        root.addView(bg, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(scroll)
         setContentView(root)
+        SleepScheduler.schedule(this)
 
         buildContent()
 
@@ -168,16 +179,52 @@ class HomeActivity : Activity() {
     override fun onResume() {
         super.onResume()
         handler.post(tick)
+        if (Prefs.isSetUp(this) && !PhotoStore.hasPermission(this) && !askedPhotoPermission) {
+            askedPhotoPermission = true
+            requestPermissions(arrayOf(PhotoStore.permission()), 11)
+        }
+        refreshPhotos()
+        resetIdle()
     }
 
     override fun onPause() {
         handler.removeCallbacks(tick)
+        handler.removeCallbacks(idle)
+        bg.stop()
         super.onPause()
     }
 
     override fun onDestroy() {
         try { unregisterReceiver(pkgReceiver) } catch (_: Exception) {}
+        bg.release()
         super.onDestroy()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        refreshPhotos()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        resetIdle()
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun refreshPhotos() {
+        if (Prefs.photoBackground(this)) {
+            bg.visibility = View.VISIBLE
+            bg.setPhotos(PhotoStore.list(this))
+            bg.start()
+        } else {
+            bg.stop()
+            bg.visibility = View.GONE
+        }
+    }
+
+    private fun resetIdle() {
+        handler.removeCallbacks(idle)
+        val minutes = Prefs.saverMinutes(this)
+        if (minutes > 0) handler.postDelayed(idle, minutes * 60_000L)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -214,6 +261,8 @@ class HomeActivity : Activity() {
         val top = grid(bigCols())
         top.addView(bigCard("Trading Dashboard", null, getDrawable(R.drawable.ic_dashboard),
             "#4F46E5") { open(Intent(this, DashboardActivity::class.java)) }.also { firstFocus = it })
+        top.addView(bigCard("Family photos", null, getDrawable(R.drawable.ic_photo),
+            "#BE185D") { open(Intent(this, SlideshowActivity::class.java)) })
         section("Home", top)
 
         // 2. YouTube, Prime Video, Netflix

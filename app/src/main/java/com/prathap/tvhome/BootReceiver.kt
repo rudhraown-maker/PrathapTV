@@ -13,6 +13,7 @@ import android.provider.Settings
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
+        SleepScheduler.schedule(c)
         if (!Prefs.isSetUp(c) || !Prefs.autoOpen(c)) return
         if (Prefs.autoOpenedThisBoot(c)) return
         val allowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Settings.canDrawOverlays(c)
